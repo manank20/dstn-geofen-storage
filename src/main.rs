@@ -31,21 +31,32 @@ const IP_ADDRESS: &str = "localhost:8000";
 const PT: &str  = "data/";
 
 fn main(){
-    loop{
-        main1();
-    }
-}
-fn main1() {
-
-    println!("Starting server at {}\n\n\n\n", IP_ADDRESS);
-
     let schema = Schema::parse_str(RAW_SCHEMA).unwrap();
 
-    let checkpoint = Arc::new(AtomicBool::new(true));
     let mut socket = TcpStream::connect(IP_ADDRESS).unwrap();
+    socket.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+//    socket.set_write_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
     println!("Connected to server");
 
     let avro_queue: SegQueue<Vec<(String, avro_rs::types::Value)>> = SegQueue::new();
+    loop{
+        main1(&mut socket, &avro_queue, &schema);
+        println!("outer loop finished");
+    }
+}
+
+fn main1(mut socket: &mut TcpStream, avro_queue: &SegQueue<Vec<(String, avro_rs::types::Value)>>, schema: &Schema){
+    println!("Reading from server");
+
+    let checkpoint = Arc::new(AtomicBool::new(true));
+
+    // let schema = Schema::parse_str(RAW_SCHEMA).unwrap();
+    //
+    // let checkpoint = Arc::new(AtomicBool::new(true));
+    // let mut socket = TcpStream::connect(IP_ADDRESS).unwrap();
+    // println!("Connected to server");
+    //
+    // let avro_queue: SegQueue<Vec<(String, avro_rs::types::Value)>> = SegQueue::new();
 
     let mut filename = init_file();
 
@@ -71,32 +82,33 @@ fn main1() {
 
         s.spawn(|| {
             while checkpoint.load(Ordering::Relaxed) {
-                let mut reader = Reader::with_schema(&schema, &mut socket).unwrap();
-                for result in &mut reader {
-                    let record = result.unwrap();
-                    match record {
-                        avro_rs::types::Value::Record(x) => {
-                            avro_queue.push(x);
-                        },
-                        _ => {
-                            println!("Error reading record");
+                if let Ok(mut reader) = Reader::with_schema(&schema, &mut socket){
+                    for result in &mut reader {
+                        let record = result.unwrap();
+                        match record {
+                            avro_rs::types::Value::Record(x) => {
+                                avro_queue.push(x);
+                            },
+                            _ => {
+                                println!("Error reading record");
+                            }
                         }
                     }
-                    if checkpoint.load(Ordering::Relaxed) == false{
-                        break;
-                    }
+
                 }
+                // if checkpoint.load(Ordering::Relaxed) == false{
+                //     break;
+                // }
             }
         });
 
         s.spawn(|| {
             std::thread::sleep(Duration::days(1).to_std().unwrap());
+            // std::thread::sleep(Duration::seconds(10).to_std().unwrap());
             checkpoint.store(false, Ordering::Relaxed);
         });
     });
  
-    println!("exiting main1");
-
     return;
 
 }
