@@ -1,14 +1,11 @@
 #[allow(unused_imports)]
 use std::net::{ TcpListener, TcpStream};
 use avro_rs::{Reader, Schema};
-use chrono::format::StrftimeItems;
-use std::fs::{File, self};
+use std::fs::File;
 use std::thread;
 use crossbeam_queue::SegQueue;
-use chrono::{Duration, Days, prelude::*};
-use tokio::time::sleep;
+use chrono::prelude::*;
 use std::io::prelude::*;
-// use std::io::Write; use std::sync::Arc;
 
 
 const RAW_SCHEMA: &str = r#"
@@ -37,7 +34,7 @@ async fn main() -> ! {
     let mut socket = TcpStream::connect(IP_ADDRESS).unwrap();
     println!("Connected to server");
 
-    let avro_queue = SegQueue::new();
+    let avro_queue: SegQueue<Vec<(String, avro_rs::types::Value)>> = SegQueue::new();
 
     let mut filename = init_file();
 
@@ -45,10 +42,18 @@ async fn main() -> ! {
         s.spawn(|| {
             loop{
                 if let Some(x) = avro_queue.pop(){
-                    let x = format!("{:?}\n", x);
-                    println!("Writing to file {:?} : {}",filename, x);
-                    filename.write_all(x.as_bytes()).unwrap();
-                    println!("{:?}",x);
+                    println!("Writing to file {:?} : {:?}",filename, x);
+                    let mut ss = "".to_string();
+                    for val in x{
+                        match val.1{
+                            avro_rs::types::Value::Double(x) => ss.push_str(&format!(",{}", x)),
+                            avro_rs::types::Value::Long(x) => ss.push_str(&format!("{}", x)),
+                            avro_rs::types::Value::String(x) => ss.push_str(&format!(",{}", x)),
+                            _ => (),
+                        }
+                    }
+                    ss.push_str("\n");
+                    filename.write_all(ss.as_bytes()).unwrap();
                 }
             }
         });
@@ -58,28 +63,22 @@ async fn main() -> ! {
             loop{
                 for result in &mut reader {
                     let record = result.unwrap();
-                    avro_queue.push(record);
+                    match record {
+                        avro_rs::types::Value::Record(x) => {
+                            avro_queue.push(x);
+                        },
+
+                        _ => {
+                            println!("Error reading record");
+                        }
+                    }
                 }
             }
         });
     });
 
-    // loop{
-    //     thread::sleep(Duration::seconds(10).to_std().unwrap());
-    //     //compress files and create new for next day
-    //     filed = init_file();
-    // }
     loop{}
 
-    
-    // loop {
-    //     println!("Waiting for data");
-    //     let record = Reader::with_schema(&schema, &mut socket).unwrap();/* from_avro_datum(&schema,result, None); */
-    //     for result in record {
-    //         avro_queue.push_back(result.unwrap());
-    //     }
-    // }
-    
 }
 
 fn init_file() -> File{
