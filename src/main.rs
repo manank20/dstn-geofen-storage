@@ -1,6 +1,7 @@
 #[allow(unused_imports)]
 use std::net::{ TcpListener, TcpStream};
 use avro_rs::{Reader, Schema};
+use tokio::fs::create_dir;
 use std::fs::File;
 use std::thread;
 use crossbeam_queue::SegQueue;
@@ -25,6 +26,7 @@ const RAW_SCHEMA: &str = r#"
 
 const IP_ADDRESS: &str = "localhost:8000";
 
+const pt: &str  = "data/";
 
 #[tokio::main]
 async fn main() -> ! {
@@ -83,8 +85,23 @@ async fn main() -> ! {
 
 fn init_file() -> File{
     let bind = Local::now().to_string();
-    let path = std::path::Path::new(bind.as_str());
-    let mut file = File::create(path).unwrap();
+    let mut iter = bind.split(" ");
+    let bind = iter.next().unwrap();
+    let bind = pt.to_owned() + bind;
+    let path1 = std::path::Path::new(pt);
+    let path = std::path::Path::new(&bind);
+    if !path1.exists(){
+        std::fs::create_dir(path1).unwrap();
+    }
+    print!("path: {:?} path1: {:?}", path, path1);
+    let mut file;
+    if !path.exists(){
+        let fil = File::create(path);
+        file = fil.unwrap(); 
+        file.write_all(b"timestamp,device_id,latitude,longitude,altitude\n").unwrap();
+        return file;
+    }
+    file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
     file.write_all(b"timestamp,device_id,latitude,longitude,altitude\n").unwrap();
     file
 }
